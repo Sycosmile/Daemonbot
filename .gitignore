@@ -1,0 +1,17 @@
+# Secrets — never commit your real token/keys
+.env
+
+# Local persisted data (leaderboard calls, conviction calls)
+data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Editor/OS noise
+.vscode/
+.idea/
+.DS_Store

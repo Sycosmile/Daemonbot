@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Compile-check every file
+        run: python -m py_compile $(git ls-files '*.py')
+
+      - name: Import smoke-test (catches missing-config-constant style bugs)
+        run: python -c "import main"
+        env:
+          BOT_TOKEN: "123456:fake-token-for-ci"
+          GROQ_API_KEY: "fake-key-for-ci"
+
+      - name: Run tests
+        run: pytest -v
+        env:
+          BOT_TOKEN: "123456:fake-token-for-ci"
+          GROQ_API_KEY: "fake-key-for-ci"
