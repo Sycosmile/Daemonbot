@@ -96,3 +96,4 @@ BOT_USERNAME = os.getenv("BOT_USERNAME", "Daemonbot")
 AUTHOR_NAME = "MR SYCO"
 AUTHOR_HANDLE = "@Sycosmile"
 AUTHOR_GITHUB = "https://github.com/Sycosmile"
+AUTHOR_X = "https://x.com/Sycosmile"
