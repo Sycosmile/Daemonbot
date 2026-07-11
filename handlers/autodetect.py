@@ -118,6 +118,13 @@ async def handle_autodetect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         reply = build_price_message(pair)
 
     ca = value if kind == "ca" else pair.get("baseToken", {}).get("address", value)
+
+    if update.effective_chat.type in ("group", "supergroup"):
+        from services.firstcaller import get_first_caller_line
+        fc_line = await get_first_caller_line(update.effective_chat.id, ca, pair)
+        if fc_line:
+            reply += f"\n\n{fc_line}"
+
     from services.token_image import resolve_token_image
     img_url = await resolve_token_image(pair, ca)
     if img_url:

@@ -154,6 +154,13 @@ async def price(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     text = build_price_message(pair)
     ca = pair.get("baseToken", {}).get("address", query)
+
+    if update.effective_chat.type in ("group", "supergroup"):
+        from services.firstcaller import get_first_caller_line
+        fc_line = await get_first_caller_line(update.effective_chat.id, ca, pair)
+        if fc_line:
+            text += f"\n\n{fc_line}"
+
     from services.token_image import resolve_token_image
     img_url = await resolve_token_image(pair, ca)
 
@@ -227,10 +234,17 @@ async def _send_scan_card(update: Update, ctx: ContextTypes.DEFAULT_TYPE, msg, q
             [InlineKeyboardButton(label, url=url) for label, url in row] for row in kb_rows
         ]) if kb_rows else None
 
+        caption = f"🧪 `${data['symbol']}` scan — {data['chain'].upper()}"
+        if update.effective_chat.type in ("group", "supergroup"):
+            from services.firstcaller import get_first_caller_line
+            fc_line = await get_first_caller_line(update.effective_chat.id, data.get("ca", query), pair)
+            if fc_line:
+                caption += f"\n\n{fc_line}"
+
         await msg.delete()
         await update.message.reply_photo(
             photo=io.BytesIO(img_bytes),
-            caption=f"🧪 `${data['symbol']}` scan — {data['chain'].upper()}",
+            caption=caption,
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=keyboard,
         )
