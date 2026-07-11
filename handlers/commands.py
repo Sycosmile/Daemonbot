@@ -129,16 +129,40 @@ async def price(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         pair = await fetch_token_by_name(query)
 
     if not pair:
-        from services.pumpfun import get_pumpfun_fallback
+        from services.pumpfun import get_pumpfun_fallback, fetch_pumpfun_coin
         fallback = await get_pumpfun_fallback(query) if len(query) > 20 else None
         if fallback:
+            pf = await fetch_pumpfun_coin(query) if len(query) > 20 else None
+            img_url = (pf or {}).get("image_uri")
+            if img_url:
+                try:
+                    await msg.delete()
+                    await update.message.reply_photo(img_url, caption=fallback, parse_mode=ParseMode.MARKDOWN)
+                    return
+                except Exception:
+                    pass
             await msg.edit_text(fallback, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
             return
         await msg.edit_text("❌ Token not found ser. Check the symbol/CA and try again.")
         return
 
     text = build_price_message(pair)
-    await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+    info = pair.get("info", {}) or {}
+    img_url = info.get("imageUrl") or info.get("header")
+    if not img_url and pair.get("chainId", "").lower() == "solana":
+        from services.pumpfun import fetch_pumpfun_coin
+        ca = pair.get("baseToken", {}).get("address", query)
+        pf = await fetch_pumpfun_coin(ca)
+        img_url = (pf or {}).get("image_uri")
+
+    if img_url:
+        try:
+            await msg.delete()
+            await update.message.reply_photo(img_url, caption=text, parse_mode=ParseMode.MARKDOWN)
+        except Exception:
+            await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+    else:
+        await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
 
     # Log call to leaderboard if in a group
     if update.effective_chat.type in ("group", "supergroup"):

@@ -54,6 +54,22 @@ def _extract_candidate(text: str):
     return None, None
 
 
+async def _get_token_image(pair: dict, ca: str) -> str | None:
+    """Best-effort token image URL — DexScreener's icon first (it's the
+    actual token logo, not just a chain badge), falling back to pump.fun's
+    own image for Solana tokens DexScreener hasn't fully indexed yet."""
+    info = pair.get("info", {}) or {}
+    img = info.get("imageUrl") or info.get("header")
+    if img:
+        return img
+    if pair.get("chainId", "").lower() == "solana":
+        from services.pumpfun import fetch_pumpfun_coin
+        pf = await fetch_pumpfun_coin(ca)
+        if pf:
+            return pf.get("image_uri")
+    return None
+
+
 async def handle_autodetect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     if not message or not message.text:
@@ -76,9 +92,17 @@ async def handle_autodetect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if kind == "ca":
         pair = await fetch_token_by_address(value)
         if not pair:
-            from services.pumpfun import get_pumpfun_fallback
+            from services.pumpfun import get_pumpfun_fallback, fetch_pumpfun_coin
             fallback = await get_pumpfun_fallback(value)
             if fallback:
+                pf = await fetch_pumpfun_coin(value)
+                img_url = (pf or {}).get("image_uri")
+                if img_url:
+                    try:
+                        await message.reply_photo(img_url, caption=fallback, parse_mode=ParseMode.MARKDOWN)
+                        return
+                    except Exception:
+                        pass
                 await message.reply_text(fallback, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
                 return
             await message.reply_text(
@@ -108,6 +132,15 @@ async def handle_autodetect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         reply = f"💊 *${base.get('symbol', '?')}* `${price:.8f}` ({change:+.1f}% 24h)"
     else:
         reply = build_price_message(pair)
+
+    ca = value if kind == "ca" else pair.get("baseToken", {}).get("address", value)
+    img_url = await _get_token_image(pair, ca)
+    if img_url:
+        try:
+            await message.reply_photo(img_url, caption=reply, parse_mode=ParseMode.MARKDOWN)
+            return
+        except Exception:
+            pass  # bad/unfetchable image URL — fall through to text-only
 
     await message.reply_text(reply, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
 

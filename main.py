@@ -10,11 +10,11 @@ import os
 import logging
 from telegram import Update
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler, filters,
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters,
 )
 from handlers.commands import (
     # Core
-    start, help_command,
+    start, help_command, about_callback, back_to_start_callback,
     # Price & Scan
     price, scan, compact_scan,
     # Charts & Trending
@@ -64,6 +64,8 @@ def main():
     # ── Core ──────────────────────────────────────────
     app.add_handler(CommandHandler("start",       start))
     app.add_handler(CommandHandler("help",        help_command))
+    app.add_handler(CallbackQueryHandler(about_callback,         pattern="^about_daemonbot$"))
+    app.add_handler(CallbackQueryHandler(back_to_start_callback, pattern="^back_to_start$"))
 
     # ── Price & Scan ──────────────────────────────────
     app.add_handler(CommandHandler("p",           price))
@@ -185,6 +187,10 @@ def main():
     port = int(os.getenv("PORT", 8443))
 
     if render_url:
+        # Use a dedicated secret (NOT the bot token) as the URL path — the
+        # token itself must never appear in logs, screenshots, or Render's
+        # dashboard URLs. Set WEBHOOK_SECRET in Render's env vars to any
+        # long random string (e.g. `python -c "import secrets; print(secrets.token_urlsafe(32))"`).
         webhook_path = os.getenv("WEBHOOK_SECRET", "daemonbot-webhook")
         webhook_url = f"{render_url}/{webhook_path}"
         logger.info(f"Starting in WEBHOOK mode → {webhook_url}")
