@@ -115,8 +115,13 @@ async def get_deployer_history(ca: str, chain: str = "ethereum") -> str:
 # ── SOCIAL FINDER ─────────────────────────────────────────────────────────────
 
 async def find_socials(ca: str) -> str:
-    """Find socials for a token via DexScreener pair info."""
+    """Find socials for a token via DexScreener pair info — compact,
+    bracket-link format (matches the Rick/Phanes-style one-liner:
+    `Socials [age]` on top, then `X • TG • Web • [about]` below)."""
+    import time
     from services.crypto import fetch_token_by_address
+    from services.scan_data import _format_age
+
     pair = await fetch_token_by_address(ca)
     if not pair:
         return "❌ Token not found on DexScreener."
@@ -125,30 +130,38 @@ async def find_socials(ca: str) -> str:
     name   = base.get("name", "?")
     symbol = base.get("symbol", "?")
     info   = pair.get("info", {}) or {}
+    dex_url = pair.get("url", "")
 
-    websites  = info.get("websites", []) or []
-    socials   = info.get("socials", []) or []
+    websites = info.get("websites", []) or []
+    socials  = info.get("socials", []) or []
 
-    lines = [f"🔗 *Socials — {name} (${symbol})*\n"]
-
-    if websites:
-        lines.append("🌐 *Websites:*")
-        for w in websites[:3]:
-            url = w.get("url", "")
-            lines.append(f"  • {url}")
-
-    if socials:
-        lines.append("\n📱 *Socials:*")
-        for s in socials[:6]:
-            stype = s.get("type", "").title()
-            url   = s.get("url", "")
-            lines.append(f"  • {stype}: {url}")
+    created_ms = pair.get("pairCreatedAt")
+    age_str = _format_age((time.time() * 1000 - created_ms) / 1000) if created_ms else "?"
 
     if not websites and not socials:
-        lines.append("❌ No socials found on DexScreener for this token.")
-        lines.append(f"\n[Check DexScreener]({pair.get('url', '')})")
+        return (
+            f"🔗 *Socials — {name} (${symbol})*\n"
+            f"❌ No socials found on DexScreener for this token.\n"
+            f"[Check DexScreener]({dex_url})"
+        )
 
-    return "\n".join(lines)
+    parts = []
+    for s in socials:
+        stype = (s.get("type") or "").lower()
+        url = s.get("url", "")
+        if not url:
+            continue
+        label = {"twitter": "X", "x": "X", "telegram": "TG"}.get(stype, stype.title() or "Link")
+        parts.append(f"[{label}]({url})")
+
+    if websites and websites[0].get("url"):
+        parts.append(f"[Web]({websites[0]['url']})")
+
+    if dex_url:
+        parts.append(f"[about]({dex_url})")
+
+    header = f"🔗 *Socials `[{age_str}]`* — {name} (${symbol})"
+    return header + "\n└ " + " • ".join(parts)
 
 
 # ── ETH GAS ───────────────────────────────────────────────────────────────────
