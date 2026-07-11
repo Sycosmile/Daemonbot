@@ -89,10 +89,11 @@ async def back_to_start_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
 async def help_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     msg = (
         "🛠 *Daemonbot Commands*\n\n"
-        "*/p* `<symbol or CA>` — Token price\n"
+        "*/p* `<symbol or CA>` — Token price (with image)\n"
         "  Example: `/p SOL` or `/p 0xCA...`\n\n"
-        "*/scan* `<CA>` — Deep token scan\n"
+        "*/scan* `<CA>` — Deep token scan (full image card)\n"
         "  Example: `/scan So11111...`\n\n"
+        "*/soc* `<CA>` — Socials, compact one-liner\n\n"
         "*/lb* — Show group call leaderboard\n\n"
         "*/th* `<CA>` — Top holders (via DexScreener)\n\n"
         "*/chart* `<token>` — Get chart link\n\n"
@@ -105,9 +106,14 @@ async def help_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "*/cal* — Economic calendar (needs Finnhub key)\n\n"
         "*/eli5* `/explain` `/fact` `/translate` — reply to any message with these\n\n"
         "*/antiscam on|off* — auto-delete + warn on likely drainer links\n\n"
-        "_Paste a $ticker or CA with no command — I'll auto-reply. "
-        "`/autodetect off` to disable._\n\n"
+        "*Paste a CA or $ticker with no command — I'll auto-reply:*\n"
+        "  • plain → quick price + image\n"
+        "  • ending in `.` → compact one-liner + image\n"
+        "  • ending in `,` → full scan card (same as /scan)\n"
+        "  • leading `.` → I stay silent on that message\n"
+        "  `/autodetect off` to disable this entirely.\n\n"
         "_Mention me or reply to chat with me. NFA DYOR ser._\n\n"
+        "Tap *ℹ️ About* on /start for links + tech info.\n\n"
         f"_{AUTHOR_NAME} ({AUTHOR_HANDLE})_"
     )
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
@@ -147,13 +153,9 @@ async def price(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     text = build_price_message(pair)
-    info = pair.get("info", {}) or {}
-    img_url = info.get("imageUrl") or info.get("header")
-    if not img_url and pair.get("chainId", "").lower() == "solana":
-        from services.pumpfun import fetch_pumpfun_coin
-        ca = pair.get("baseToken", {}).get("address", query)
-        pf = await fetch_pumpfun_coin(ca)
-        img_url = (pf or {}).get("image_uri")
+    ca = pair.get("baseToken", {}).get("address", query)
+    from services.token_image import resolve_token_image
+    img_url = await resolve_token_image(pair, ca)
 
     if img_url:
         try:

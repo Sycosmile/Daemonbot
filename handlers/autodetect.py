@@ -54,22 +54,6 @@ def _extract_candidate(text: str):
     return None, None
 
 
-async def _get_token_image(pair: dict, ca: str) -> str | None:
-    """Best-effort token image URL — DexScreener's icon first (it's the
-    actual token logo, not just a chain badge), falling back to pump.fun's
-    own image for Solana tokens DexScreener hasn't fully indexed yet."""
-    info = pair.get("info", {}) or {}
-    img = info.get("imageUrl") or info.get("header")
-    if img:
-        return img
-    if pair.get("chainId", "").lower() == "solana":
-        from services.pumpfun import fetch_pumpfun_coin
-        pf = await fetch_pumpfun_coin(ca)
-        if pf:
-            return pf.get("image_uri")
-    return None
-
-
 async def handle_autodetect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     if not message or not message.text:
@@ -134,7 +118,8 @@ async def handle_autodetect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         reply = build_price_message(pair)
 
     ca = value if kind == "ca" else pair.get("baseToken", {}).get("address", value)
-    img_url = await _get_token_image(pair, ca)
+    from services.token_image import resolve_token_image
+    img_url = await resolve_token_image(pair, ca)
     if img_url:
         try:
             await message.reply_photo(img_url, caption=reply, parse_mode=ParseMode.MARKDOWN)
