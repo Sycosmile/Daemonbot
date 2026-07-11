@@ -38,7 +38,8 @@ CREAM = (240, 236, 226)
 MUTED = (140, 149, 170)
 BORDER = (40, 52, 76)
 
-FONT_DIR = "/usr/share/fonts/truetype/google-fonts/"
+import os
+FONT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "fonts") + "/"
 
 
 def _f(name, size):
