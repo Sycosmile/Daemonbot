@@ -76,6 +76,11 @@ async def handle_autodetect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if kind == "ca":
         pair = await fetch_token_by_address(value)
         if not pair:
+            from services.pumpfun import get_pumpfun_fallback
+            fallback = await get_pumpfun_fallback(value)
+            if fallback:
+                await message.reply_text(fallback, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+                return
             await message.reply_text(
                 f"❌ `{value[:10]}...` not found on DexScreener — too new, "
                 f"unlisted, or not a real token.",
@@ -88,8 +93,15 @@ async def handle_autodetect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return  # stay silent on a $word that isn't a real token — avoid noise
 
     if detail == "detailed":
-        reply = build_scan_message(pair)
-    elif detail == "compact":
+        # Full /scan-style reply — this means the actual image card, not
+        # just a longer text block. Delegate to the same pipeline /scan
+        # uses so both paths stay in sync and only need fixing in one place.
+        from handlers.commands import _send_scan_card
+        placeholder = await message.reply_text("🧪 Scanning contract...")
+        await _send_scan_card(update, ctx, placeholder, value)
+        return
+
+    if detail == "compact":
         base = pair.get("baseToken", {})
         price = float(pair.get("priceUsd") or 0)
         change = pair.get("priceChange", {}).get("h24", 0)

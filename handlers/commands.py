@@ -3,7 +3,7 @@ handlers/commands.py — All slash command handlers
 """
 
 import asyncio
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
@@ -13,12 +13,12 @@ from services.crypto import (
     get_trending_tokens, format_trending, format_number
 )
 from services.leaderboard import log_call, get_leaderboard, format_leaderboard
-from config import CHAIN_EXPLORERS, AUTHOR_NAME, AUTHOR_HANDLE, AUTHOR_GITHUB
+from config import CHAIN_EXPLORERS, AUTHOR_NAME, AUTHOR_HANDLE, AUTHOR_GITHUB, AUTHOR_X, BOT_NAME
 
 
 # ── /start ────────────────────────────────────────────
-async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    msg = (
+def _start_text() -> str:
+    return (
         "⚡ *Daemonbot online.*\n\n"
         "Multi-chain crypto assistant. AI-powered. Built different.\n\n"
         "*Commands:*\n"
@@ -28,11 +28,61 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "/th `<CA>` — Top holders\n"
         "/chart `<token>` — Price chart link\n"
         "/trending — Trending tokens\n\n"
-        "_Talk to me anytime. I don't bite. Much._\n"
-        f"Built by *{AUTHOR_NAME}* ({AUTHOR_HANDLE}) 🔐\n"
-        f"[GitHub]({AUTHOR_GITHUB})"
+        "_Talk to me anytime. I don't bite. Much._"
     )
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+
+def _start_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("ℹ️ About", callback_data="about_daemonbot")],
+    ])
+
+
+async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        _start_text(), parse_mode=ParseMode.MARKDOWN, reply_markup=_start_keyboard()
+    )
+
+
+# ── About button (callback) ───────────────────────────
+def _about_text() -> str:
+    return (
+        f"🤖 *{BOT_NAME}*\n\n"
+        "A multi-chain AI crypto assistant for Telegram — price lookups, "
+        "contract scans, rug/security checks, conviction call leaderboards, "
+        "PNL cards, and passive $ticker/CA detection.\n\n"
+        "*Chains:* Solana, Ethereum, Base, BSC, Arbitrum, Polygon\n"
+        "*Built with:* python-telegram-bot, Pillow, Groq (Llama 3.3)\n\n"
+        f"Built by *{AUTHOR_NAME}* ({AUTHOR_HANDLE}) — 3MTT Cybersecurity "
+        "fellow, bug bounty hunter 🔐\n\n"
+        "_NFA DYOR ser._"
+    )
+
+
+def _about_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("GitHub", url=AUTHOR_GITHUB),
+            InlineKeyboardButton("X", url=AUTHOR_X),
+        ],
+        [InlineKeyboardButton("⬅️ Back", callback_data="back_to_start")],
+    ])
+
+
+async def about_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        _about_text(), parse_mode=ParseMode.MARKDOWN, reply_markup=_about_keyboard()
+    )
+
+
+async def back_to_start_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        _start_text(), parse_mode=ParseMode.MARKDOWN, reply_markup=_start_keyboard()
+    )
 
 
 # ── /help ─────────────────────────────────────────────
@@ -79,6 +129,11 @@ async def price(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         pair = await fetch_token_by_name(query)
 
     if not pair:
+        from services.pumpfun import get_pumpfun_fallback
+        fallback = await get_pumpfun_fallback(query) if len(query) > 20 else None
+        if fallback:
+            await msg.edit_text(fallback, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+            return
         await msg.edit_text("❌ Token not found ser. Check the symbol/CA and try again.")
         return
 
@@ -126,6 +181,11 @@ async def _send_scan_card(update: Update, ctx: ContextTypes.DEFAULT_TYPE, msg, q
     try:
         data = await build_scan_data(query)
         if not data:
+            from services.pumpfun import get_pumpfun_fallback
+            fallback = await get_pumpfun_fallback(query)
+            if fallback:
+                await msg.edit_text(fallback, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+                return
             await msg.edit_text(
                 "❌ Contract not found on DexScreener ser.\n"
                 "Either it's too new, not on a supported DEX, or that CA is cooked."

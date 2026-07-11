@@ -71,6 +71,41 @@ async def fetch_deployer_history(creator: str) -> list:
     return []
 
 
+async def get_pumpfun_fallback(mint: str) -> str | None:
+    """Lightweight fallback for when DexScreener has nothing yet (very fresh
+    pump.fun launches — often indexed there within minutes, not seconds).
+    Hits pump.fun's own API directly. Returns None if pump.fun doesn't have
+    it either (genuinely not a pump.fun token, or too fresh even for that),
+    so callers can fall through to their normal 'not found anywhere' message.
+    """
+    coin, _err = await fetch_pumpfun_coin_verbose(mint)
+    if coin is None:
+        return None
+
+    name = coin.get("name", "Unknown")
+    symbol = coin.get("symbol", "?")
+    mcap = coin.get("usd_market_cap", coin.get("market_cap", 0)) or 0
+    bonded = coin.get("complete", False)
+    twitter = coin.get("twitter") or ""
+    website = coin.get("website") or ""
+
+    status = "🟢 Bonded → migrated" if bonded else "🟡 Still on bonding curve"
+
+    msg = (
+        f"🚀 *{name} (${symbol})* — pump.fun _(not yet on DexScreener)_\n"
+        f"💰 MC: `${mcap:,.0f}`   {status}\n"
+    )
+    links = []
+    if twitter:
+        links.append(f"[X]({twitter})")
+    if website:
+        links.append(f"[Web]({website})")
+    links.append(f"[pump.fun](https://pump.fun/coin/{mint})")
+    msg += "🔗 " + " • ".join(links) + "\n"
+    msg += "_Too new for DexScreener — full /scan card unlocks once it's indexed._"
+    return msg
+
+
 async def get_pumpfun_data(mint: str) -> str:
     mint = mint.strip()
     coin, err = await fetch_pumpfun_coin_verbose(mint)
