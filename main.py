@@ -185,7 +185,7 @@ def main():
     port = int(os.getenv("PORT", 8443))
 
     if render_url:
-        webhook_path = BOT_TOKEN
+        webhook_path = os.getenv("WEBHOOK_SECRET", "daemonbot-webhook")
         webhook_url = f"{render_url}/{webhook_path}"
         logger.info(f"Starting in WEBHOOK mode → {webhook_url}")
         app.run_webhook(
