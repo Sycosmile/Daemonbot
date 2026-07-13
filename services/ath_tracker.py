@@ -16,11 +16,17 @@ import os
 import time
 import asyncio
 from config import ATH_FILE
+from services.kv_store import kv_get, kv_set
 
 _lock = asyncio.Lock()
+ATH_KEY = "daemonbot:ath_cache"
 
 
 def _load() -> dict:
+    remote = kv_get(ATH_KEY)
+    if remote is not None:
+        return remote
+
     if not os.path.exists(ATH_FILE):
         os.makedirs(os.path.dirname(ATH_FILE), exist_ok=True)
         return {}
@@ -32,6 +38,9 @@ def _load() -> dict:
 
 
 def _save(data: dict):
+    if kv_set(ATH_KEY, data):
+        return
+
     os.makedirs(os.path.dirname(ATH_FILE), exist_ok=True)
     with open(ATH_FILE, "w") as f:
         json.dump(data, f, indent=2)

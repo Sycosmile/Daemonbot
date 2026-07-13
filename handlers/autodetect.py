@@ -119,6 +119,23 @@ async def handle_autodetect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     ca = value if kind == "ca" else pair.get("baseToken", {}).get("address", value)
 
+    # Log the call FIRST — so if this is the token's first-ever mention in
+    # this group, the person doing it right now is immediately shown as
+    # the first caller, instead of only showing up for the *next* person
+    # who mentions it.
+    if chat.type in ("group", "supergroup") and update.effective_user:
+        user = update.effective_user
+        base = pair.get("baseToken", {})
+        await log_call(
+            chat_id=chat.id,
+            user_id=user.id,
+            username=user.username or user.first_name,
+            token_name=base.get("name", "?"),
+            token_symbol=base.get("symbol", "?"),
+            price_usd=float(pair.get("priceUsd") or 0),
+            ca=ca,
+        )
+
     if update.effective_chat.type in ("group", "supergroup"):
         from services.firstcaller import get_first_caller_line
         fc_line = await get_first_caller_line(update.effective_chat.id, ca, pair)
@@ -135,17 +152,3 @@ async def handle_autodetect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             pass  # bad/unfetchable image URL — fall through to text-only
 
     await message.reply_text(reply, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
-
-    # Log call to leaderboard (same as /p and /scan)
-    if chat.type in ("group", "supergroup") and update.effective_user:
-        user = update.effective_user
-        base = pair.get("baseToken", {})
-        await log_call(
-            chat_id=chat.id,
-            user_id=user.id,
-            username=user.username or user.first_name,
-            token_name=base.get("name", "?"),
-            token_symbol=base.get("symbol", "?"),
-            price_usd=float(pair.get("priceUsd") or 0),
-            ca=base.get("address", value if kind == "ca" else ""),
-        )

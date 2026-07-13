@@ -155,6 +155,20 @@ async def price(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = build_price_message(pair)
     ca = pair.get("baseToken", {}).get("address", query)
 
+    # Log the call FIRST — see comment in autodetect.py for why.
+    if update.effective_chat.type in ("group", "supergroup"):
+        user = update.effective_user
+        base = pair.get("baseToken", {})
+        await log_call(
+            chat_id=update.effective_chat.id,
+            user_id=user.id,
+            username=user.username or user.first_name,
+            token_name=base.get("name", "?"),
+            token_symbol=base.get("symbol", "?"),
+            price_usd=float(pair.get("priceUsd") or 0),
+            ca=ca,
+        )
+
     if update.effective_chat.type in ("group", "supergroup"):
         from services.firstcaller import get_first_caller_line
         fc_line = await get_first_caller_line(update.effective_chat.id, ca, pair)
@@ -172,20 +186,6 @@ async def price(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
     else:
         await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
-
-    # Log call to leaderboard if in a group
-    if update.effective_chat.type in ("group", "supergroup"):
-        user = update.effective_user
-        base = pair.get("baseToken", {})
-        await log_call(
-            chat_id=update.effective_chat.id,
-            user_id=user.id,
-            username=user.username or user.first_name,
-            token_name=base.get("name", "?"),
-            token_symbol=base.get("symbol", "?"),
-            price_usd=float(pair.get("priceUsd") or 0),
-            ca=base.get("address", ""),
-        )
 
 
 # ── /scan <CA> ────────────────────────────────────────
@@ -211,6 +211,20 @@ async def _send_scan_card(update: Update, ctx: ContextTypes.DEFAULT_TYPE, msg, q
     from services.scan_card import generate_scan_card
     from services.quicklinks import build_keyboard_rows
 
+    async def _log_this_call(pair: dict):
+        if update.effective_chat.type in ("group", "supergroup") and pair and update.effective_user:
+            user = update.effective_user
+            base = pair.get("baseToken", {})
+            await log_call(
+                chat_id=update.effective_chat.id,
+                user_id=user.id,
+                username=user.username or user.first_name,
+                token_name=base.get("name", "?"),
+                token_symbol=base.get("symbol", "?"),
+                price_usd=float(pair.get("priceUsd") or 0),
+                ca=base.get("address", query),
+            )
+
     try:
         data = await build_scan_data(query)
         if not data:
@@ -225,6 +239,7 @@ async def _send_scan_card(update: Update, ctx: ContextTypes.DEFAULT_TYPE, msg, q
             )
             return
         pair = data["_pair"]
+        await _log_this_call(pair)
 
         loop = asyncio.get_event_loop()
         img_bytes = await loop.run_in_executor(None, generate_scan_card, data)
@@ -256,22 +271,9 @@ async def _send_scan_card(update: Update, ctx: ContextTypes.DEFAULT_TYPE, msg, q
         if not pair:
             await msg.edit_text("❌ Contract not found ser.")
             return
+        await _log_this_call(pair)
         text = build_scan_message(pair)
         await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
-
-    # Log call to leaderboard
-    if update.effective_chat.type in ("group", "supergroup") and pair:
-        user = update.effective_user
-        base = pair.get("baseToken", {})
-        await log_call(
-            chat_id=update.effective_chat.id,
-            user_id=user.id,
-            username=user.username or user.first_name,
-            token_name=base.get("name", "?"),
-            token_symbol=base.get("symbol", "?"),
-            price_usd=float(pair.get("priceUsd") or 0),
-            ca=base.get("address", query),
-        )
 
 
 # ── /lb ───────────────────────────────────────────────

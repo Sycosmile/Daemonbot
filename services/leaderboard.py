@@ -1,7 +1,8 @@
 """
 services/leaderboard.py — Track token calls per user in groups.
 A "call" is logged when someone uses /scan or /p with a CA in a group.
-Persisted to JSON file so it survives restarts.
+Persisted to Upstash Redis (survives Render redeploys) with automatic
+fallback to a local JSON file when Upstash isn't configured.
 """
 
 import json
@@ -9,15 +10,24 @@ import os
 import asyncio
 from datetime import datetime
 from config import LEADERBOARD_FILE, MAX_LEADERBOARD_ENTRIES
+from services.kv_store import kv_get, kv_set
 
 _lock = asyncio.Lock()
-_cache: dict = {}   # in-memory copy — avoids disk read on every scan/paste
+_cache: dict = {}   # in-memory copy — avoids a network/disk read on every scan/paste
+LEADERBOARD_KEY = "daemonbot:leaderboard"
 
 
 def _load() -> dict:
     global _cache
     if _cache:
         return _cache
+
+    remote = kv_get(LEADERBOARD_KEY)
+    if remote is not None:
+        _cache = remote
+        return _cache
+
+    # Fallback: local file (Upstash not configured, or the request failed)
     if not os.path.exists(LEADERBOARD_FILE):
         os.makedirs(os.path.dirname(LEADERBOARD_FILE), exist_ok=True)
         return {}
@@ -31,7 +41,13 @@ def _load() -> dict:
 
 def _save(data: dict):
     global _cache
-    _cache = data   # keep memory copy in sync
+    _cache = data   # keep memory copy in sync regardless of where it lands
+
+    if kv_set(LEADERBOARD_KEY, data):
+        return  # persisted to Upstash — done
+
+    # Fallback: local file (data still survives this process's lifetime,
+    # just not across a redeploy, if Upstash isn't configured/reachable)
     os.makedirs(os.path.dirname(LEADERBOARD_FILE), exist_ok=True)
     with open(LEADERBOARD_FILE, "w") as f:
         json.dump(data, f, indent=2)
