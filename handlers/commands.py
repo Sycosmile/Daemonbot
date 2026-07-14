@@ -140,6 +140,27 @@ async def price(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if fallback:
             pf = await fetch_pumpfun_coin(query) if len(query) > 20 else None
             img_url = (pf or {}).get("image_uri")
+
+            mcap = (pf or {}).get("usd_market_cap", (pf or {}).get("market_cap", 0)) or 0
+            synthetic_price = mcap / 1_000_000_000 if mcap else 0
+            synthetic_pair = {"priceUsd": str(synthetic_price), "marketCap": mcap}
+
+            if update.effective_chat.type in ("group", "supergroup") and synthetic_price > 0:
+                user = update.effective_user
+                await log_call(
+                    chat_id=update.effective_chat.id,
+                    user_id=user.id,
+                    username=user.username or user.first_name,
+                    token_name=(pf or {}).get("name", "?"),
+                    token_symbol=(pf or {}).get("symbol", "?"),
+                    price_usd=synthetic_price,
+                    ca=query,
+                )
+                from services.firstcaller import get_first_caller_line
+                fc_line = await get_first_caller_line(update.effective_chat.id, query, synthetic_pair)
+                if fc_line:
+                    fallback += f"\n\n{fc_line}"
+
             if img_url:
                 try:
                     await msg.delete()
@@ -228,9 +249,39 @@ async def _send_scan_card(update: Update, ctx: ContextTypes.DEFAULT_TYPE, msg, q
     try:
         data = await build_scan_data(query)
         if not data:
-            from services.pumpfun import get_pumpfun_fallback
+            from services.pumpfun import get_pumpfun_fallback, fetch_pumpfun_coin
             fallback = await get_pumpfun_fallback(query)
             if fallback:
+                pf = await fetch_pumpfun_coin(query)
+                img_url = (pf or {}).get("image_uri")
+
+                mcap = (pf or {}).get("usd_market_cap", (pf or {}).get("market_cap", 0)) or 0
+                synthetic_price = mcap / 1_000_000_000 if mcap else 0
+                synthetic_pair = {"priceUsd": str(synthetic_price), "marketCap": mcap}
+
+                if update.effective_chat.type in ("group", "supergroup") and synthetic_price > 0:
+                    user = update.effective_user
+                    await log_call(
+                        chat_id=update.effective_chat.id,
+                        user_id=user.id,
+                        username=user.username or user.first_name,
+                        token_name=(pf or {}).get("name", "?"),
+                        token_symbol=(pf or {}).get("symbol", "?"),
+                        price_usd=synthetic_price,
+                        ca=query,
+                    )
+                    from services.firstcaller import get_first_caller_line
+                    fc_line = await get_first_caller_line(update.effective_chat.id, query, synthetic_pair)
+                    if fc_line:
+                        fallback += f"\n\n{fc_line}"
+
+                if img_url:
+                    try:
+                        await msg.delete()
+                        await update.message.reply_photo(img_url, caption=fallback, parse_mode=ParseMode.MARKDOWN)
+                        return
+                    except Exception:
+                        pass
                 await msg.edit_text(fallback, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
                 return
             await msg.edit_text(

@@ -81,6 +81,31 @@ async def handle_autodetect(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             if fallback:
                 pf = await fetch_pumpfun_coin(value)
                 img_url = (pf or {}).get("image_uri")
+
+                # pump.fun tokens have a fixed 1B supply pre-migration —
+                # this lets us derive a real price for logging/attribution
+                # that stays dimensionally consistent once the token later
+                # shows up on DexScreener with its own real priceUsd.
+                mcap = (pf or {}).get("usd_market_cap", (pf or {}).get("market_cap", 0)) or 0
+                synthetic_price = mcap / 1_000_000_000 if mcap else 0
+                synthetic_pair = {"priceUsd": str(synthetic_price), "marketCap": mcap}
+
+                if chat.type in ("group", "supergroup") and update.effective_user and synthetic_price > 0:
+                    user = update.effective_user
+                    await log_call(
+                        chat_id=chat.id,
+                        user_id=user.id,
+                        username=user.username or user.first_name,
+                        token_name=(pf or {}).get("name", "?"),
+                        token_symbol=(pf or {}).get("symbol", "?"),
+                        price_usd=synthetic_price,
+                        ca=value,
+                    )
+                    from services.firstcaller import get_first_caller_line
+                    fc_line = await get_first_caller_line(chat.id, value, synthetic_pair)
+                    if fc_line:
+                        fallback += f"\n\n{fc_line}"
+
                 if img_url:
                     try:
                         await message.reply_photo(img_url, caption=fallback, parse_mode=ParseMode.MARKDOWN)
