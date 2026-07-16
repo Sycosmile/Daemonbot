@@ -12,7 +12,8 @@ from services.crypto import (
     build_price_message, build_scan_message,
     get_trending_tokens, format_trending, format_number
 )
-from services.leaderboard import log_call, get_leaderboard, format_leaderboard
+from services.leaderboard import log_call, get_leaderboard, format_leaderboard, \
+    get_calls_leaderboard, format_calls_leaderboard
 from config import CHAIN_EXPLORERS, AUTHOR_NAME, AUTHOR_HANDLE, AUTHOR_GITHUB, AUTHOR_X, BOT_NAME
 
 
@@ -24,7 +25,7 @@ def _start_text() -> str:
         "*Commands:*\n"
         "/p `<token>` — Price lookup\n"
         "/scan `<CA>` — Contract scan\n"
-        "/lb — Group leaderboard\n"
+        "/lb `[1d|7d|all]` — Group leaderboard\n"
         "/th `<CA>` — Top holders\n"
         "/chart `<token>` — Price chart link\n"
         "/trending — Trending tokens\n\n"
@@ -94,7 +95,8 @@ async def help_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "*/scan* `<CA>` — Deep token scan (full image card)\n"
         "  Example: `/scan So11111...`\n\n"
         "*/soc* `<CA>` — Socials, compact one-liner\n\n"
-        "*/lb* — Show group call leaderboard\n\n"
+        "*/lb* `[1d|7d|all]` — Top calls by multiplier + group stats "
+        "(hit rate, median return). Defaults to 7d, tap the buttons to switch.\n\n"
         "*/th* `<CA>` — Top holders (via DexScreener)\n\n"
         "*/chart* `<token>` — Get chart link\n\n"
         "*/trending* — Trending tokens on CoinGecko\n\n"
@@ -327,6 +329,15 @@ async def _send_scan_card(update: Update, ctx: ContextTypes.DEFAULT_TYPE, msg, q
         await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
 
 
+def _leaderboard_keyboard(active_period: str) -> InlineKeyboardMarkup:
+    labels = {"1d": "1D", "7d": "7D", "all": "All-time"}
+    row = []
+    for period, label in labels.items():
+        text = f"• {label} •" if period == active_period else label
+        row.append(InlineKeyboardButton(text, callback_data=f"lb_period:{period}"))
+    return InlineKeyboardMarkup([row])
+
+
 # ── /lb ───────────────────────────────────────────────
 async def leaderboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -334,9 +345,32 @@ async def leaderboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Leaderboard only works in group chats ser.")
         return
 
-    board = await get_leaderboard(chat.id)
-    text  = format_leaderboard(board, group_name=chat.title or "this group")
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    period = ctx.args[0].lower() if ctx.args and ctx.args[0].lower() in ("1d", "7d", "all") else "7d"
+
+    msg = await update.message.reply_text("📊 Building leaderboard...")
+    result = await get_calls_leaderboard(chat.id, period=period)
+    text = format_calls_leaderboard(result, group_name=chat.title or "this group")
+    await msg.edit_text(
+        text,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=_leaderboard_keyboard(period),
+    )
+
+
+async def leaderboard_period_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    period = query.data.split(":", 1)[1]
+    chat = update.effective_chat
+
+    result = await get_calls_leaderboard(chat.id, period=period)
+    text = format_calls_leaderboard(result, group_name=chat.title or "this group")
+    await query.edit_message_text(
+        text,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=_leaderboard_keyboard(period),
+    )
 
 
 # ── /th <CA> ─────────────────────────────────────────

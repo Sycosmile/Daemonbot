@@ -7,7 +7,11 @@ GitHub: https://github.com/Sycosmile
 """
 
 import os
+import json
+import asyncio
 import logging
+import tornado.web
+import tornado.ioloop
 from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters,
@@ -15,6 +19,7 @@ from telegram.ext import (
 from handlers.commands import (
     # Core
     start, help_command, about_callback, back_to_start_callback,
+    leaderboard_period_callback,
     # Price & Scan
     price, scan, compact_scan,
     # Charts & Trending
@@ -58,6 +63,40 @@ async def _alerts_job(ctx):
     await check_due_alerts(ctx.bot)
 
 
+class HealthHandler(tornado.web.RequestHandler):
+    """Plain GET / → 200 OK. This is the route UptimeRobot should ping —
+    PTB's built-in run_webhook() only registers the webhook path itself,
+    so pinging bare `/` had nothing to answer it (root cause of the 502s)."""
+
+    def get(self):
+        self.set_status(200)
+        self.write("Daemonbot is alive.")
+
+
+class TelegramWebhookHandler(tornado.web.RequestHandler):
+    """Minimal stand-in for PTB's internal webhook handler — decodes the
+    incoming Telegram update and pushes it onto the Application's own
+    update_queue, same as run_webhook() does under the hood."""
+
+    def initialize(self, ptb_application, secret_token=None):
+        self.ptb_application = ptb_application
+        self.secret_token = secret_token
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json")
+
+    async def post(self):
+        if self.secret_token:
+            header_token = self.request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+            if header_token != self.secret_token:
+                self.set_status(403)
+                return
+        data = json.loads(self.request.body)
+        update = Update.de_json(data, self.ptb_application.bot)
+        await self.ptb_application.update_queue.put(update)
+        self.set_status(200)
+
+
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
@@ -66,6 +105,7 @@ def main():
     app.add_handler(CommandHandler("help",        help_command))
     app.add_handler(CallbackQueryHandler(about_callback,         pattern="^about_daemonbot$"))
     app.add_handler(CallbackQueryHandler(back_to_start_callback, pattern="^back_to_start$"))
+    app.add_handler(CallbackQueryHandler(leaderboard_period_callback, pattern="^lb_period:"))
 
     # ── Price & Scan ──────────────────────────────────
     app.add_handler(CommandHandler("p",           price))
@@ -193,14 +233,33 @@ def main():
         # long random string (e.g. `python -c "import secrets; print(secrets.token_urlsafe(32))"`).
         webhook_path = os.getenv("WEBHOOK_SECRET", "daemonbot-webhook")
         webhook_url = f"{render_url}/{webhook_path}"
+        secret_token = os.getenv("WEBHOOK_SECRET_TOKEN")  # optional, separate from URL secret
         logger.info(f"Starting in WEBHOOK mode → {webhook_url}")
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            url_path=webhook_path,
-            webhook_url=webhook_url,
-            allowed_updates=Update.ALL_TYPES,
-        )
+
+        async def run_webhook_with_health_check():
+            await app.initialize()
+            await app.bot.set_webhook(
+                url=webhook_url,
+                allowed_updates=Update.ALL_TYPES,
+                secret_token=secret_token,
+            )
+            await app.start()
+
+            tornado_app = tornado.web.Application([
+                (r"/", HealthHandler),
+                (rf"/{webhook_path}", TelegramWebhookHandler,
+                 dict(ptb_application=app, secret_token=secret_token)),
+            ])
+            tornado_app.listen(port, address="0.0.0.0")
+            logger.info("Health check route live on GET / — point UptimeRobot here")
+
+            try:
+                await asyncio.Event().wait()  # run forever until process is killed
+            finally:
+                await app.stop()
+                await app.shutdown()
+
+        asyncio.run(run_webhook_with_health_check())
     else:
         logger.info("Starting in POLLING mode (local dev)")
         app.run_polling(allowed_updates=Update.ALL_TYPES)

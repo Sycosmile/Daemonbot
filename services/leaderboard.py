@@ -8,7 +8,8 @@ fallback to a local JSON file when Upstash isn't configured.
 import json
 import os
 import asyncio
-from datetime import datetime
+import statistics
+from datetime import datetime, timedelta
 from config import LEADERBOARD_FILE, MAX_LEADERBOARD_ENTRIES
 from services.kv_store import kv_get, kv_set
 
@@ -149,3 +150,137 @@ async def record_pnl_peak(chat_id: int, user_id: int, call_time: str, price_usd:
                 _save(data)
                 return peak
     return price_usd
+
+
+# ── Calls-ranked leaderboard (Group Stats + Top Calls) ──────────────
+
+PERIOD_DAYS = {"1d": 1, "7d": 7, "all": None}
+PERIOD_LABELS = {"1d": "1D", "7d": "7D", "all": "All-time"}
+HIT_MULTIPLIER = 2.0  # a call counts as a "hit" once its peak reaches 2x
+_RANK_ICONS = ["🥇", "🥈", "🥉"] + ["🔸"] * 20
+
+
+def _within_period(call_time_iso: str, days: int | None) -> bool:
+    if days is None:
+        return True
+    try:
+        call_dt = datetime.fromisoformat(call_time_iso)
+    except (ValueError, TypeError):
+        # Can't parse the timestamp — don't silently exclude it from
+        # a period filter we can't actually evaluate.
+        return True
+    return datetime.utcnow() - call_dt <= timedelta(days=days)
+
+
+async def get_calls_leaderboard(chat_id: int, period: str = "7d", top_n: int = 10) -> dict:
+    """
+    Ranks individual calls (not users) by peak multiplier reached since the
+    call was made, within the given period. Reuses record_pnl_peak's lazy
+    pattern: each call's current price is fetched live and peak_price is
+    bumped if higher, so ranking accuracy improves the more this (or /pnl)
+    gets run — no background price poller required.
+
+    Returns {"group_stats": {...} | None, "top_calls": [...]}
+    """
+    from services.crypto import fetch_token_by_address, fetch_token_by_name
+
+    days = PERIOD_DAYS.get(period, 7)
+
+    async with _lock:
+        data = _load()
+        gkey = str(chat_id)
+        group = data.get(gkey, {})
+
+        candidates = []
+        for ukey, info in group.items():
+            username = info.get("username", "anon")
+            for call in info.get("calls", []):
+                if not _within_period(call.get("time", ""), days):
+                    continue
+                if call.get("price"):
+                    candidates.append((username, call))
+
+        if not candidates:
+            return {"group_stats": None, "top_calls": []}
+
+        async def _fetch_current(call):
+            ca = call.get("ca", "")
+            try:
+                pair = await fetch_token_by_address(ca) if ca \
+                    else await fetch_token_by_name(call.get("symbol", ""))
+                return float(pair.get("priceUsd") or 0) if pair else None
+            except (TypeError, ValueError):
+                return None
+
+        current_prices = await asyncio.gather(
+            *[_fetch_current(call) for (_, call) in candidates]
+        )
+
+        results = []
+        for (username, call), current_price in zip(candidates, current_prices):
+            entry_price = call.get("price", 0) or 0
+            if entry_price <= 0:
+                continue
+
+            stored_peak = call.get("peak_price", entry_price) or entry_price
+            peak_price = max(stored_peak, current_price) if current_price else stored_peak
+            if peak_price != call.get("peak_price"):
+                call["peak_price"] = peak_price  # bump in place, persisted below
+
+            results.append({
+                "username":   username,
+                "symbol":     call.get("symbol", "?"),
+                "multiplier": peak_price / entry_price,
+                "ca":         call.get("ca", ""),
+                "call_time":  call.get("time", ""),
+            })
+
+        _save(data)  # persist any peak_price bumps made during this render
+
+        if not results:
+            return {"group_stats": None, "top_calls": []}
+
+        multipliers = [r["multiplier"] for r in results]
+        returns_pct = [(m - 1) * 100 for m in multipliers]
+        hit_count = sum(1 for m in multipliers if m >= HIT_MULTIPLIER)
+
+        group_stats = {
+            "period":         period,
+            "calls":          len(results),
+            "hit_rate":       round(100 * hit_count / len(results)),
+            "median_return":  round(statistics.median(returns_pct)),
+            "avg_multiplier": round(statistics.mean(multipliers), 1),
+        }
+
+        results.sort(key=lambda r: r["multiplier"], reverse=True)
+        return {"group_stats": group_stats, "top_calls": results[:top_n]}
+
+
+def format_calls_leaderboard(result: dict, group_name: str = "this group") -> str:
+    group_stats = result.get("group_stats")
+    top_calls = result.get("top_calls", [])
+
+    if not group_stats or not top_calls:
+        return "📋 No calls in this period ser. Start calling tokens with /scan or /p."
+
+    period_label = PERIOD_LABELS.get(group_stats["period"], group_stats["period"])
+
+    lines = [
+        f"📊 *Group Stats — {group_name}*",
+        f"├ Period: `{period_label}`",
+        f"├ Calls: `{group_stats['calls']}`",
+        f"├ Hit Rate (2x+): `{group_stats['hit_rate']}%`",
+        f"├ Median Return: `{group_stats['median_return']}%`",
+        f"└ Avg Multiplier: `{group_stats['avg_multiplier']}x`",
+        "",
+        "🏆 *Top Calls*",
+    ]
+
+    for i, entry in enumerate(top_calls):
+        icon = _RANK_ICONS[i] if i < len(_RANK_ICONS) else "▫️"
+        uname = f"@{entry['username']}" if entry["username"] != "anon" else "anon"
+        lines.append(f"{icon} {i + 1}. *${entry['symbol']}* » _{uname}_ [{entry['multiplier']:.1f}x]")
+
+    lines.append("\n_Call tokens with /scan <CA> to get on the board._")
+    return "\n".join(lines)
+
