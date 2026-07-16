@@ -66,11 +66,21 @@ async def _alerts_job(ctx):
 class HealthHandler(tornado.web.RequestHandler):
     """Plain GET / → 200 OK. This is the route UptimeRobot should ping —
     PTB's built-in run_webhook() only registers the webhook path itself,
-    so pinging bare `/` had nothing to answer it (root cause of the 502s)."""
+    so pinging bare `/` had nothing to answer it (root cause of the 502s).
+
+    Also handles HEAD — Render's own internal health checks use HEAD
+    requests, not GET. Tornado returns 405 for any HTTP method that
+    isn't explicitly implemented, so without this, Render's health
+    checks were failing and triggering periodic auto-restarts even
+    though the service was perfectly healthy."""
 
     def get(self):
         self.set_status(200)
         self.write("Daemonbot is alive.")
+
+    def head(self):
+        self.set_status(200)
+        # No self.write() here — HTTP spec forbids a body on HEAD responses.
 
 
 class TelegramWebhookHandler(tornado.web.RequestHandler):
