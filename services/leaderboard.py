@@ -194,11 +194,27 @@ async def get_calls_leaderboard(chat_id: int, period: str = "7d", top_n: int = 1
         candidates = []
         for ukey, info in group.items():
             username = info.get("username", "anon")
+            # Dedupe: keep only this user's EARLIEST call per token. Every
+            # /scan, /p, or CA paste logs a fresh call entry (so first-caller
+            # attribution updates live), but that means re-checking the same
+            # coin repeatedly would otherwise show up as multiple "calls" on
+            # the leaderboard — this collapses those back down to one entry
+            # per (user, token), using their real first call as the basis.
+            earliest_by_ca = {}
             for call in info.get("calls", []):
                 if not _within_period(call.get("time", ""), days):
                     continue
-                if call.get("price"):
-                    candidates.append((username, call))
+                if not call.get("price"):
+                    continue
+                ca_key = call.get("ca", "").lower() or call.get("symbol", "").lower()
+                if not ca_key:
+                    continue
+                existing = earliest_by_ca.get(ca_key)
+                if existing is None or call.get("time", "") < existing.get("time", ""):
+                    earliest_by_ca[ca_key] = call
+
+            for call in earliest_by_ca.values():
+                candidates.append((username, call))
 
         if not candidates:
             return {"group_stats": None, "top_calls": []}

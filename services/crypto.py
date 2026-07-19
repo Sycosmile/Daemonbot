@@ -28,15 +28,25 @@ async def fetch_token_by_address(ca: str) -> Optional[dict]:
 
 
 async def _fetch_token_by_address(ca: str) -> Optional[dict]:
-    url = f"{DEXSCREENER_BASE}/tokens/{ca}"
+    """DexScreener's old /tokens/{address} endpoint (no chainId in the path)
+    has been dropped from their current official API docs — it still
+    responds, but appears to serve stale/incomplete data rather than a
+    clean 404, which silently produced wrong prices instead of an obvious
+    error. /search is confirmed still current, so we use that for address
+    lookups too, filtering to pairs whose baseToken actually matches."""
+    url = f"{DEXSCREENER_BASE}/search?q={ca}"
     try:
         r = await _http.get(url)
         data = r.json()
         pairs = data.get("pairs")
         if not pairs:
             return None
-        pairs.sort(key=lambda x: float(x.get("liquidity", {}).get("usd", 0) or 0), reverse=True)
-        return pairs[0]
+        ca_lower = ca.lower()
+        matches = [p for p in pairs if p.get("baseToken", {}).get("address", "").lower() == ca_lower]
+        if not matches:
+            return None
+        matches.sort(key=lambda x: float(x.get("liquidity", {}).get("usd", 0) or 0), reverse=True)
+        return matches[0]
     except Exception:
         return None
 
