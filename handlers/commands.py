@@ -712,8 +712,19 @@ async def pnl_image(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     else:
         pair = await fetch_token_by_name(matched.get("symbol", query))
 
+    if not pair and ca:
+        # Not yet migrated off pump.fun's bonding curve — DexScreener has
+        # nothing for it, but pump.fun's own API still does. Build a
+        # synthetic pair dict so everything below (which just reads
+        # priceUsd/marketCap/chainId) works unchanged.
+        from services.pumpfun import fetch_pumpfun_coin
+        pf = await fetch_pumpfun_coin(ca)
+        mcap = (pf or {}).get("usd_market_cap", (pf or {}).get("market_cap", 0)) or 0
+        if mcap:
+            pair = {"priceUsd": str(mcap / 1_000_000_000), "marketCap": mcap, "chainId": "solana"}
+
     if not pair:
-        await msg.edit_text("❌ Couldn't fetch current price.")
+        await msg.edit_text("❌ Couldn't fetch current price — not on DexScreener or pump.fun.")
         return
 
     current_price = float(pair.get("priceUsd") or 0)

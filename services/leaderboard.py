@@ -224,6 +224,14 @@ async def get_calls_leaderboard(chat_id: int, period: str = "7d", top_n: int = 1
             try:
                 pair = await fetch_token_by_address(ca) if ca \
                     else await fetch_token_by_name(call.get("symbol", ""))
+                if not pair and ca:
+                    # Not yet migrated off pump.fun's bonding curve —
+                    # DexScreener has nothing, pump.fun's own API still does.
+                    from services.pumpfun import fetch_pumpfun_coin
+                    pf = await fetch_pumpfun_coin(ca)
+                    mcap = (pf or {}).get("usd_market_cap", (pf or {}).get("market_cap", 0)) or 0
+                    if mcap:
+                        pair = {"priceUsd": str(mcap / 1_000_000_000), "marketCap": mcap, "chainId": "solana"}
                 return pair
             except (TypeError, ValueError):
                 return None
