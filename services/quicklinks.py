@@ -36,11 +36,10 @@ QUICKBUY_TEMPLATES = {
     # documented pattern for this bot. (verify)
     "BonkBot": ("https://t.me/bonkbot_bot?start={ca}", "verify"),
 
-    # Confirmed bot handle (@TrojanOnSolana). Trojan's start param is often
-    # referral-prefixed (e.g. r-<ref>-<ca>) rather than a bare CA — left
-    # without a CA param to avoid shipping a link that silently fails.
-    # Add your own ref prefix here once you've got one. (verify)
-    "Trojan":  ("https://t.me/TrojanOnSolana", "verify — no CA param, ref-gated"),
+    # Your own referral bot instance + ref code. CA appended per Trojan's
+    # documented r-<ref>-<ca> start-param convention. (verify once — Trojan
+    # deep-link formats aren't a stable public API, per the module docstring)
+    "Trojan":  ("https://t.me/achilles_trojanbot?start=r-kingsyco9-{ca}", "verify — own ref link"),
 
     # Photon has no Telegram bot at all — it's web-terminal only. Pair
     # (LP) address, not the token CA, is what its URLs key off.
