@@ -224,29 +224,46 @@ async def get_calls_leaderboard(chat_id: int, period: str = "7d", top_n: int = 1
             try:
                 pair = await fetch_token_by_address(ca) if ca \
                     else await fetch_token_by_name(call.get("symbol", ""))
-                return float(pair.get("priceUsd") or 0) if pair else None
+                return pair
             except (TypeError, ValueError):
                 return None
 
-        current_prices = await asyncio.gather(
+        current_pairs = await asyncio.gather(
             *[_fetch_current(call) for (_, call) in candidates]
         )
 
+        from services.ath_tracker import get_real_ath_mc
+
         results = []
-        for (username, call), current_price in zip(candidates, current_prices):
+        for (username, call), pair in zip(candidates, current_pairs):
             entry_price = call.get("price", 0) or 0
             if entry_price <= 0:
                 continue
 
-            stored_peak = call.get("peak_price", entry_price) or entry_price
-            peak_price = max(stored_peak, current_price) if current_price else stored_peak
-            if peak_price != call.get("peak_price"):
-                call["peak_price"] = peak_price  # bump in place, persisted below
+            current_price = float((pair or {}).get("priceUsd") or 0)
+            current_mc = float((pair or {}).get("marketCap") or (pair or {}).get("fdv") or 0)
+            chain = ((pair or {}).get("chainId") or "").lower()
+            ca = call.get("ca", "")
+
+            # Same real-ATH source /pnl uses — a call's ranking shouldn't
+            # collapse just because the token has since cooled off from
+            # its peak. Falls back to the old current-price/peak_price
+            # approach only if we can't get real mcap data for this token.
+            if current_price > 0 and current_mc > 0:
+                call_mc = entry_price * (current_mc / current_price)
+                ath_mc = await get_real_ath_mc(ca, current_mc, is_solana=(chain == "solana")) if ca else current_mc
+                multiplier = max(ath_mc, call_mc) / call_mc if call_mc > 0 else 1.0
+            else:
+                stored_peak = call.get("peak_price", entry_price) or entry_price
+                peak_price = max(stored_peak, current_price) if current_price else stored_peak
+                if peak_price != call.get("peak_price"):
+                    call["peak_price"] = peak_price  # bump in place, persisted below
+                multiplier = peak_price / entry_price
 
             results.append({
                 "username":   username,
                 "symbol":     call.get("symbol", "?"),
-                "multiplier": peak_price / entry_price,
+                "multiplier": multiplier,
                 "ca":         call.get("ca", ""),
                 "call_time":  call.get("time", ""),
             })
