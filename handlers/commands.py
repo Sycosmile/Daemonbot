@@ -3,6 +3,7 @@ handlers/commands.py — All slash command handlers
 """
 
 import asyncio
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
@@ -15,6 +16,8 @@ from services.crypto import (
 from services.leaderboard import log_call, get_leaderboard, format_leaderboard, \
     get_calls_leaderboard, format_calls_leaderboard
 from config import CHAIN_EXPLORERS, AUTHOR_NAME, AUTHOR_HANDLE, AUTHOR_GITHUB, AUTHOR_X, BOT_NAME
+
+logger = logging.getLogger(__name__)
 
 
 # ── /start ────────────────────────────────────────────
@@ -228,7 +231,7 @@ async def _send_scan_card(update: Update, ctx: ContextTypes.DEFAULT_TYPE, msg, q
     sends it with the quick-link/quick-buy keyboard, and falls back to the
     old plain-text scan message if anything in that pipeline blows up
     (3rd-party API down, Pillow error, whatever)."""
-    import asyncio, io
+    import io
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     from services.scan_data import build_scan_data
     from services.scan_card import generate_scan_card
@@ -316,10 +319,12 @@ async def _send_scan_card(update: Update, ctx: ContextTypes.DEFAULT_TYPE, msg, q
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=keyboard,
         )
-    except Exception:
+    except Exception as e:
         # Card pipeline failed somewhere (RugCheck down, Pillow error, etc.)
         # — fall back to the plain-text scan rather than leaving the user
-        # with nothing.
+        # with nothing. Logged so a real failure is diagnosable from
+        # Render's logs instead of vanishing silently.
+        logger.exception(f"/scan card pipeline failed for query={query!r}: {e}")
         pair = await (fetch_token_by_address(query) if len(query) > 20 else fetch_token_by_name(query))
         if not pair:
             await msg.edit_text("❌ Contract not found ser.")
@@ -742,7 +747,7 @@ async def pnl_image(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ath_mc = await get_real_ath_mc(ca, current_mc, is_solana=(chain.lower() == "solana"))
 
     try:
-        import asyncio, io
+        import io
         loop = asyncio.get_event_loop()
         # run_in_executor offloads the heavy Pillow drawing + sync HTTP image
         # fetch to a thread — the bot stays responsive for other users
@@ -767,7 +772,10 @@ async def pnl_image(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             caption=f"PNL Card for @{uname} — ${matched.get('symbol', '?')} | MR SYCO (@Sycosmile)",
         )
     except Exception as e:
-        # Fallback to text if Pillow fails
+        # Fallback to text if Pillow fails — but log it, so a real failure
+        # (bad data, font issue, etc.) shows up in Render's logs instead of
+        # vanishing silently.
+        logger.exception(f"pnl_image card generation failed for query={query!r}: {e}")
         result = await get_user_pnl(chat.id, user.id, uname, query)
         await msg.edit_text(result, parse_mode=ParseMode.MARKDOWN)
 
