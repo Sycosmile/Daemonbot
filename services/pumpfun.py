@@ -10,15 +10,23 @@ working entirely, swap in a paid indexer (Bitquery/Helius) for this feature.
 """
 
 import httpx
+from services.cache import TTLCache
 
 PUMPFUN_API = "https://frontend-api-v3.pump.fun"
+_pumpfun_cache = TTLCache(ttl=20)
 
 
 async def fetch_pumpfun_coin(mint: str) -> dict | None:
     """Raw pump.fun coin record (used by /pf's text report AND the scan card
     for banner image / lore / real lifetime ATH). None if not a pump.fun
-    token or the API is unreachable — never raises."""
+    token or the API is unreachable — never raises. Cached 20s — the same
+    token is often looked up twice in one command (e.g. /pnl's main fetch
+    + its ATH lookup), and this avoids a redundant round-trip each time."""
     mint = mint.strip()
+    return await _pumpfun_cache.get_or_set(mint, lambda: _fetch_pumpfun_coin(mint))
+
+
+async def _fetch_pumpfun_coin(mint: str) -> dict | None:
     async with httpx.AsyncClient(timeout=10) as client:
         try:
             r = await client.get(f"{PUMPFUN_API}/coins/{mint}")
