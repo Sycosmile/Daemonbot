@@ -726,6 +726,10 @@ async def pnl_image(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         call_time=matched.get("time", ""), price_usd=current_price,
     )
 
+    from services.ath_tracker import get_real_ath_mc
+    current_mc = float(pair.get("marketCap") or pair.get("fdv") or 0)
+    ath_mc = await get_real_ath_mc(ca, current_mc, is_solana=(chain.lower() == "solana"))
+
     try:
         import asyncio, io
         loop = asyncio.get_event_loop()
@@ -742,6 +746,7 @@ async def pnl_image(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             chain=chain,
             pair=pair,
             peak_price=peak_price,
+            ath_mc=ath_mc,
         ))
 
         from telegram import InputFile

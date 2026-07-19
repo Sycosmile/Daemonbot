@@ -274,15 +274,27 @@ def generate_pnl_image(
     chain: str = "SOLANA",
     pair: dict | None = None,
     peak_price: float | None = None,
+    ath_mc: float | None = None,
 ) -> bytes:
-    pct = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0.0
-    pnl_color = FOREST if pct >= 0 else RED_MUTED
-    mood = _mood_for_pct(pct)
-
     current_mcap = float((pair or {}).get("marketCap") or (pair or {}).get("fdv") or 0)
     call_mc = _price_to_mcap(entry_price, current_price, current_mcap)
-    peak_for_reached = max(peak_price or 0, entry_price, current_price)
-    reached_mc = _price_to_mcap(peak_for_reached, current_price, current_mcap)
+
+    # Headline % and "Reached" both reflect the token's real all-time-high
+    # market cap since the call — not the live current price, which can
+    # make a genuinely great call look bad just because it's cooled off
+    # from its peak. Falls back to the old current-price-based calc only
+    # if no ath_mc was supplied (shouldn't normally happen — the handler
+    # always fetches it before calling this).
+    if ath_mc and call_mc > 0:
+        reached_mc = max(ath_mc, call_mc)
+        pct = (reached_mc - call_mc) / call_mc * 100
+    else:
+        pct = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0.0
+        peak_for_reached = max(peak_price or 0, entry_price, current_price)
+        reached_mc = _price_to_mcap(peak_for_reached, current_price, current_mcap)
+
+    pnl_color = FOREST if pct >= 0 else RED_MUTED
+    mood = _mood_for_pct(pct)
 
     canvas = Image.new("RGB", (W * FACTOR, H * FACTOR), NAVY_DARK)
     bg = _gradient_bg(W * FACTOR, H * FACTOR, NAVY_MID, PLUM)

@@ -46,6 +46,27 @@ def _save(data: dict):
         json.dump(data, f, indent=2)
 
 
+async def get_real_ath_mc(ca: str, current_mc: float, is_solana: bool = False) -> float:
+    """The single source of truth for 'what's the highest market cap this
+    token has ever reached' — prefers pump.fun's own lifetime ATH (Solana
+    only, a real indexed value) over our own tracked high-water-mark (which
+    is only as good as how often *someone* has scanned/pinged this token).
+    Always returns a market cap >= current_mc (a token can't be below its
+    own ATH by definition, but a stale/lagging tracker entry could say
+    otherwise, so this clamps it)."""
+    pf_ath = None
+    if is_solana:
+        from services.pumpfun import fetch_pumpfun_coin
+        pf_coin = await fetch_pumpfun_coin(ca)
+        pf_ath = (pf_coin or {}).get("ath_market_cap")
+
+    if pf_ath:
+        return max(pf_ath, current_mc)
+
+    ath_info = await record_and_get_ath(ca, current_mc)
+    return max(ath_info["ath_mc"], current_mc)
+
+
 async def record_and_get_ath(ca: str, current_mc: float) -> dict:
     """Updates the high-water-mark for `ca` if current_mc is a new high,
     and returns {"ath_mc": float, "is_new_high": bool, "pct_off_ath": float}.
