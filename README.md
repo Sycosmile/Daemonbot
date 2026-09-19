@@ -2,7 +2,7 @@
 
 # Daemonbot 🤖⚡
 
-**Multi-chain AI crypto Telegram bot — price/scan, rug & security checks, conviction leaderboards**
+**Multi-chain AI crypto Telegram bot for price/scan, rug & security checks, conviction leaderboards(Degenerates)**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org)
